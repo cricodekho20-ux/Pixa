@@ -1,0 +1,8 @@
+{
+  "name": "DesignLab Pro",
+  "description": "Professional Android photo and typography design editor with PixelLab-grade text effects, 3D text, perspective warp, stickers, and layers.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
