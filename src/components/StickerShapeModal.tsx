@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { STICKERS, STICKER_CATEGORIES, StickerItem } from '../utils/stickers';
 import { SHAPES_LIST, ShapeDefinition, renderShapeSVGPath } from '../utils/shapes';
 import { Smile, Shapes, Upload, X } from 'lucide-react';
@@ -20,6 +20,12 @@ export const StickerShapeModal: React.FC<StickerShapeModalProps> = ({
 }) => {
   const [tab, setTab] = useState<'stickers' | 'shapes'>(initialTab);
   const [selectedStickerCat, setSelectedStickerCat] = useState<string>('All');
+
+  useEffect(() => {
+    if (initialTab) {
+      setTab(initialTab);
+    }
+  }, [initialTab]);
 
   const filteredStickers = STICKERS.filter(s =>
     selectedStickerCat === 'All' ? true : s.category === selectedStickerCat

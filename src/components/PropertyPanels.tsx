@@ -32,6 +32,7 @@ import {
   Frame,
   Lock,
   Unlock,
+  Shapes,
 } from 'lucide-react';
 
 interface PropertyPanelsProps {
@@ -48,6 +49,7 @@ interface PropertyPanelsProps {
   onReplaceImage: (file: File) => void;
   onOpenCrop?: () => void;
   onOpenResize?: () => void;
+  onOpenShapes?: () => void;
   // Background controls
   background: DesignBackground;
   onChangeBackground: (bg: DesignBackground) => void;
@@ -67,6 +69,7 @@ export const PropertyPanels: React.FC<PropertyPanelsProps> = ({
   onReplaceImage,
   onOpenCrop,
   onOpenResize,
+  onOpenShapes,
   background,
   onChangeBackground,
 }) => {
@@ -506,6 +509,133 @@ export const PropertyPanels: React.FC<PropertyPanelsProps> = ({
               </span>
             </div>
           )}
+        </div>
+      )}
+
+      {/* SHAPE LAYER PROPERTY CONTROLS */}
+      {selectedLayer.type === 'shape' && (
+        <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-1">
+          {/* Change Shape / Pick Another Shape */}
+          {onOpenShapes && (
+            <button
+              onClick={onOpenShapes}
+              className="flex items-center gap-1.5 px-3 py-2 bg-[#052E16] hover:bg-[#15803D] text-white rounded-xl border border-[#15803D] shrink-0 font-medium active:scale-95 transition-colors"
+              title="Change Shape"
+            >
+              <Shapes className="w-3.5 h-3.5 text-[#22C55E]" />
+              <span className="capitalize">{selectedLayer.shapeType}</span>
+            </button>
+          )}
+
+          {/* Color / Fill */}
+          <button
+            onClick={onOpenColorModal}
+            className="flex items-center gap-1.5 px-3 py-2 bg-[#052E16] hover:bg-[#15803D] text-white rounded-xl border border-[#15803D] shrink-0 font-medium active:scale-95 transition-colors"
+            title="Change Shape Fill Color"
+          >
+            <div
+              className="w-3.5 h-3.5 rounded-full border border-white/40 shadow-sm"
+              style={{ background: selectedLayer.fillColor }}
+            />
+            <span>Fill Color</span>
+          </button>
+
+          {/* Stroke Width */}
+          <div className="flex items-center gap-2 bg-[#052E16] px-3 py-1.5 rounded-xl border border-[#15803D] shrink-0">
+            <span className="text-[10px] text-emerald-200/80 font-bold">STROKE</span>
+            <input
+              type="range"
+              min="0"
+              max="40"
+              value={selectedLayer.strokeWidth}
+              onChange={e => onUpdateLayer(selectedLayer.id, { strokeWidth: Number(e.target.value) })}
+              className="w-20 accent-[#22C55E] h-1.5 bg-[#0B3D20] rounded cursor-pointer"
+            />
+            <span className="text-xs font-mono text-white w-6">{selectedLayer.strokeWidth}</span>
+          </div>
+
+          {/* Stroke Color */}
+          <div className="flex items-center gap-1.5 bg-[#052E16] px-2.5 py-1.5 rounded-xl border border-[#15803D] shrink-0">
+            <span className="text-[10px] text-emerald-200/80 font-bold">BORDER</span>
+            <input
+              type="color"
+              value={selectedLayer.strokeColor || '#000000'}
+              onChange={e => onUpdateLayer(selectedLayer.id, { strokeColor: e.target.value })}
+              className="w-5 h-5 rounded cursor-pointer bg-transparent border-0"
+              title="Stroke Color"
+            />
+          </div>
+
+          {/* Shadow toggle */}
+          <button
+            onClick={() =>
+              onUpdateLayer(selectedLayer.id, {
+                shadow: selectedLayer.shadow
+                  ? undefined
+                  : { color: '#000000', blur: 14, offsetX: 4, offsetY: 4, opacity: 50 },
+              })
+            }
+            className={`px-2.5 py-2 rounded-xl text-xs font-bold border shrink-0 transition-colors ${
+              selectedLayer.shadow
+                ? 'bg-[#16A34A] text-white border-[#22C55E]'
+                : 'bg-[#052E16] text-neutral-300 hover:text-white border-[#15803D]'
+            }`}
+          >
+            Shadow
+          </button>
+
+          {/* Opacity */}
+          <div className="flex items-center gap-2 bg-[#052E16] px-3 py-1.5 rounded-xl border border-[#15803D] shrink-0">
+            <span className="text-[10px] text-emerald-200/80 font-bold">OPACITY</span>
+            <input
+              type="range"
+              min="10"
+              max="100"
+              value={selectedLayer.opacity}
+              onChange={e => onUpdateLayer(selectedLayer.id, { opacity: Number(e.target.value) })}
+              className="w-20 accent-[#22C55E] h-1.5 bg-[#0B3D20] rounded cursor-pointer"
+            />
+            <span className="text-xs font-mono text-white w-6">{selectedLayer.opacity}%</span>
+          </div>
+
+          {/* Flip Horizontal */}
+          <button
+            onClick={() => onUpdateLayer(selectedLayer.id, { flipX: !selectedLayer.flipX })}
+            className={`p-2 rounded-xl border shrink-0 transition-colors ${
+              selectedLayer.flipX
+                ? 'bg-[#16A34A] text-white border-[#22C55E]'
+                : 'bg-[#052E16] text-white border-[#15803D] hover:bg-[#15803D]'
+            }`}
+            title="Flip Horizontal"
+          >
+            <FlipHorizontal className="w-4 h-4" />
+          </button>
+
+          {/* Flip Vertical */}
+          <button
+            onClick={() => onUpdateLayer(selectedLayer.id, { flipY: !selectedLayer.flipY })}
+            className={`p-2 rounded-xl border shrink-0 transition-colors ${
+              selectedLayer.flipY
+                ? 'bg-[#16A34A] text-white border-[#22C55E]'
+                : 'bg-[#052E16] text-white border-[#15803D] hover:bg-[#15803D]'
+            }`}
+            title="Flip Vertical"
+          >
+            <FlipVertical className="w-4 h-4" />
+          </button>
+
+          {/* Lock */}
+          <button
+            onClick={() => onUpdateLayer(selectedLayer.id, { locked: !selectedLayer.locked })}
+            className={`p-2 rounded-xl border shrink-0 transition-colors ${
+              selectedLayer.locked
+                ? 'bg-amber-600 text-white border-amber-500'
+                : 'bg-[#052E16] text-white border-[#15803D] hover:bg-[#15803D]'
+            }`}
+            title={selectedLayer.locked ? 'Unlock Layer' : 'Lock Layer'}
+          >
+            {selectedLayer.locked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
+          </button>
         </div>
       )}
     </div>

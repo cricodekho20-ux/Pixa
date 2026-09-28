@@ -1,10 +1,12 @@
-import React, { useState } from 'react';
-import { Check, X, Sliders } from 'lucide-react';
+import React, { useState, useMemo } from 'react';
+import { Check, X, Sliders, Maximize2 } from 'lucide-react';
+import { computeRatioString } from './RatioModal';
 
 interface CanvasSizeModalProps {
   currentWidth: number;
   currentHeight: number;
   onApplySize: (width: number, height: number) => void;
+  onOpenRatioModal?: () => void;
   onClose: () => void;
 }
 
@@ -33,11 +35,16 @@ export const CanvasSizeModal: React.FC<CanvasSizeModalProps> = ({
   currentWidth,
   currentHeight,
   onApplySize,
+  onOpenRatioModal,
   onClose,
 }) => {
   const [width, setWidth] = useState<number>(currentWidth);
   const [height, setHeight] = useState<number>(currentHeight);
   const [selectedId, setSelectedId] = useState<string>('custom');
+
+  const calculatedRatio = useMemo(() => {
+    return computeRatioString(width, height);
+  }, [width, height]);
 
   const handleSelectPreset = (p: SizePreset) => {
     setSelectedId(p.id);
@@ -54,10 +61,17 @@ export const CanvasSizeModal: React.FC<CanvasSizeModalProps> = ({
     <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-end sm:items-center justify-center p-0 sm:p-4 text-white">
       <div className="bg-[#0B3D20] border border-[#15803D] rounded-t-3xl sm:rounded-2xl w-full max-w-md max-h-[85vh] flex flex-col shadow-2xl overflow-hidden animate-in slide-in-from-bottom duration-200">
         {/* Header */}
-        <div className="p-4 border-b border-[#15803D] flex items-center justify-between">
+        <div className="p-4 border-b border-[#15803D] flex items-center justify-between bg-[#052E16]">
           <div>
-            <h3 className="text-sm font-extrabold text-white">Design Size</h3>
-            <p className="text-[11px] text-emerald-200/70">Social media aspect ratios & custom dimensions</p>
+            <div className="flex items-center gap-2">
+              <h3 className="text-sm font-extrabold text-white">Design Size</h3>
+              <span className="bg-[#22C55E]/20 text-[#22C55E] border border-[#22C55E]/40 text-[9px] font-mono uppercase px-1.5 py-0.5 rounded font-bold">
+                Exact Pixels
+              </span>
+            </div>
+            <p className="text-[11px] text-emerald-200/70">
+              SIZE controls exact pixel dimensions • RATIO controls shape
+            </p>
           </div>
           <button
             onClick={onClose}
@@ -65,6 +79,28 @@ export const CanvasSizeModal: React.FC<CanvasSizeModalProps> = ({
           >
             <X className="w-4 h-4" />
           </button>
+        </div>
+
+        {/* Current summary banner */}
+        <div className="px-4 py-2.5 bg-[#052E16]/80 border-b border-[#15803D] flex items-center justify-between text-xs">
+          <div className="flex items-center gap-2">
+            <span className="text-emerald-300 text-[11px]">Calculated Ratio:</span>
+            <span className="font-mono font-black text-[#22C55E] bg-[#16A34A]/20 px-2 py-0.5 rounded border border-[#22C55E]/30">
+              {calculatedRatio}
+            </span>
+          </div>
+          {onOpenRatioModal && (
+            <button
+              onClick={() => {
+                onClose();
+                onOpenRatioModal();
+              }}
+              className="text-[#22C55E] hover:underline font-bold text-[11px] flex items-center gap-1"
+            >
+              <span>Switch to Ratio</span>
+              <span>→</span>
+            </button>
+          )}
         </div>
 
         {/* Presets List */}
@@ -93,7 +129,12 @@ export const CanvasSizeModal: React.FC<CanvasSizeModalProps> = ({
 
           {/* Custom Dimension Inputs */}
           <div className="pt-3 border-t border-[#15803D] mt-3">
-            <span className="text-xs font-bold text-emerald-200 block mb-2">Custom Dimensions</span>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-bold text-emerald-200 block">Custom Pixel Dimensions</span>
+              <span className="text-[10px] text-emerald-300/80 font-mono">
+                {width} × {height} px ({calculatedRatio})
+              </span>
+            </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="text-[10px] text-emerald-300 uppercase font-semibold block mb-1">
@@ -102,7 +143,7 @@ export const CanvasSizeModal: React.FC<CanvasSizeModalProps> = ({
                 <input
                   type="number"
                   min="100"
-                  max="4000"
+                  max="8000"
                   value={width}
                   onChange={e => {
                     setWidth(Number(e.target.value));
@@ -119,7 +160,7 @@ export const CanvasSizeModal: React.FC<CanvasSizeModalProps> = ({
                 <input
                   type="number"
                   min="100"
-                  max="4000"
+                  max="8000"
                   value={height}
                   onChange={e => {
                     setHeight(Number(e.target.value));

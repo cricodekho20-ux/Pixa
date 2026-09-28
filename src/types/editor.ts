@@ -203,7 +203,7 @@ export interface StickerLayer {
   shadow?: ShadowEffect;
 }
 
-export type ShapeType = 'rectangle' | 'rounded-rect' | 'circle' | 'triangle' | 'star' | 'polygon' | 'line' | 'arrow' | 'heart' | 'diamond';
+export type ShapeType = 'rectangle' | 'rounded-rect' | 'circle' | 'ellipse' | 'triangle' | 'star' | 'polygon' | 'line' | 'arrow' | 'heart' | 'diamond';
 
 export interface ShapeLayer {
   id: string;
@@ -221,6 +221,8 @@ export interface ShapeLayer {
   strokeColor: string;
   strokeWidth: number;
   borderRadius: number;
+  flipX?: boolean;
+  flipY?: boolean;
   shadow?: ShadowEffect;
 }
 
@@ -261,6 +263,8 @@ export interface Project {
   updatedAt: number;
   width: number;
   height: number;
+  originalWidth?: number;
+  originalHeight?: number;
   background: DesignBackground;
   layers: Layer[];
   thumbnail?: string;

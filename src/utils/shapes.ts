@@ -9,21 +9,27 @@ export interface ShapeDefinition {
 
 export const SHAPES_LIST: ShapeDefinition[] = [
   { type: 'rectangle', label: 'Rectangle', defaultWidth: 160, defaultHeight: 100 },
-  { type: 'rounded-rect', label: 'Rounded Box', defaultWidth: 160, defaultHeight: 100 },
   { type: 'circle', label: 'Circle', defaultWidth: 120, defaultHeight: 120 },
+  { type: 'ellipse', label: 'Ellipse', defaultWidth: 160, defaultHeight: 100 },
+  { type: 'line', label: 'Line', defaultWidth: 180, defaultHeight: 16 },
+  { type: 'arrow', label: 'Arrow', defaultWidth: 160, defaultHeight: 80 },
   { type: 'triangle', label: 'Triangle', defaultWidth: 120, defaultHeight: 120 },
-  { type: 'star', label: '5-Point Star', defaultWidth: 120, defaultHeight: 120 },
-  { type: 'polygon', label: 'Hexagon', defaultWidth: 120, defaultHeight: 120 },
+  { type: 'star', label: 'Star', defaultWidth: 120, defaultHeight: 120 },
+  { type: 'polygon', label: 'Polygon', defaultWidth: 120, defaultHeight: 120 },
+  { type: 'rounded-rect', label: 'Rounded Rectangle', defaultWidth: 160, defaultHeight: 100 },
   { type: 'heart', label: 'Heart', defaultWidth: 120, defaultHeight: 110 },
   { type: 'diamond', label: 'Diamond', defaultWidth: 120, defaultHeight: 120 },
-  { type: 'arrow', label: 'Arrow', defaultWidth: 160, defaultHeight: 80 },
-  { type: 'line', label: 'Divider Line', defaultWidth: 180, defaultHeight: 16 },
 ];
 
 export function renderShapeSVGPath(type: ShapeType, w: number, h: number): string {
   switch (type) {
     case 'circle':
+    case 'ellipse':
       return `M ${w / 2} 0 A ${w / 2} ${h / 2} 0 1 0 ${w / 2} ${h} A ${w / 2} ${h / 2} 0 1 0 ${w / 2} 0 Z`;
+    case 'rounded-rect': {
+      const r = Math.min(w, h) * 0.18;
+      return `M ${r} 0 H ${w - r} Q ${w} 0 ${w} ${r} V ${h - r} Q ${w} ${h} ${w - r} ${h} H ${r} Q 0 ${h} 0 ${h - r} V ${r} Q 0 0 ${r} 0 Z`;
+    }
     case 'triangle':
       return `M ${w / 2} 0 L ${w} ${h} L 0 ${h} Z`;
     case 'star': {

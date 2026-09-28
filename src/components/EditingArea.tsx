@@ -6,13 +6,14 @@ import {
   ImageLayer,
   StickerLayer,
   ShapeLayer,
+  ShapeType,
   DrawingLayer,
 } from '../types/editor';
 import { SmartGuides, GuideLine } from './SmartGuides';
 import { PerspectivePins } from './PerspectivePins';
 import { getPerspectiveMatrix3D } from '../utils/perspective';
 import { generateCompositeTextShadow } from '../utils/text3d';
-import { renderShapeSVGPath } from '../utils/shapes';
+import { renderShapeSVGPath, SHAPES_LIST } from '../utils/shapes';
 import {
   Copy,
   Trash2,
@@ -24,6 +25,7 @@ import {
   Maximize2,
   Frame,
   FlipHorizontal,
+  Shapes,
 } from 'lucide-react';
 
 interface EditingAreaProps {
@@ -42,12 +44,23 @@ interface EditingAreaProps {
   onOpenEffects?: () => void;
   onOpenChroma?: () => void;
   onStartPerspective?: () => void;
+  // Shape drawing mode
+  activeDrawingShapeType?: ShapeType | null;
+  onFinishDrawingShape?: (shape: {
+    type: ShapeType;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  }) => void;
+  onCancelDrawingShape?: () => void;
   // Fixed workspace fit
   zoom: number;
   setZoom: (z: number | ((prev: number) => number)) => void;
   pan: { x: number; y: number };
   setPan: (p: { x: number; y: number } | ((prev: { x: number; y: number }) => { x: number; y: number })) => void;
   snapEnabled: boolean;
+  showGrid?: boolean;
   perspectiveLayerId: string | null;
   onApplyPerspective: (perspective: ImageLayer['perspective']) => void;
   onCancelPerspective: () => void;
@@ -68,16 +81,30 @@ export const EditingArea: React.FC<EditingAreaProps> = ({
   onOpenEffects,
   onOpenChroma,
   onStartPerspective,
+  activeDrawingShapeType,
+  onFinishDrawingShape,
+  onCancelDrawingShape,
   zoom,
   setZoom,
   pan,
   setPan,
   snapEnabled,
+  showGrid = false,
   perspectiveLayerId,
   onApplyPerspective,
   onCancelPerspective,
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
+
+  // Live shape drawing state
+  const [shapeDraft, setShapeDraft] = useState<{
+    type: ShapeType;
+    startX: number;
+    startY: number;
+    currentX: number;
+    currentY: number;
+    pointerId: number;
+  } | null>(null);
 
   // Single-pointer interaction: Move, Corner/Side Resize, Rotate
   // Strictly locked to dragState.layerId!
@@ -207,8 +234,54 @@ export const EditingArea: React.FC<EditingAreaProps> = ({
     }
   };
 
-  // Background pointer down: Deselect object if user taps canvas background outside layers
+  // Non-passive touch listener on container to guarantee touch gestures inside canvas do not scroll page
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    const preventTouchScroll = (e: TouchEvent) => {
+      if (e.cancelable) {
+        e.preventDefault();
+      }
+    };
+
+    el.addEventListener('touchstart', preventTouchScroll, { passive: false });
+    el.addEventListener('touchmove', preventTouchScroll, { passive: false });
+    el.addEventListener('touchend', preventTouchScroll, { passive: false });
+    el.addEventListener('touchcancel', preventTouchScroll, { passive: false });
+
+    return () => {
+      el.removeEventListener('touchstart', preventTouchScroll);
+      el.removeEventListener('touchmove', preventTouchScroll);
+      el.removeEventListener('touchend', preventTouchScroll);
+      el.removeEventListener('touchcancel', preventTouchScroll);
+    };
+  }, []);
+
+  // Background pointer down: Deselect object or start shape drawing
   const handleBackgroundPointerDown = (e: React.PointerEvent) => {
+    if (activeDrawingShapeType) {
+      e.preventDefault();
+      try {
+        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+      } catch (err) {
+        console.warn(err);
+      }
+
+      const canvasX = Math.round((e.clientX - pan.x) / zoom);
+      const canvasY = Math.round((e.clientY - pan.y) / zoom);
+
+      setShapeDraft({
+        type: activeDrawingShapeType,
+        startX: canvasX,
+        startY: canvasY,
+        currentX: canvasX,
+        currentY: canvasY,
+        pointerId: e.pointerId,
+      });
+      return;
+    }
+
     if (e.target === containerRef.current || (e.target as HTMLElement).id === 'canvas-wrapper') {
       onSelectLayer(null);
       setDragState(null);
@@ -220,8 +293,37 @@ export const EditingArea: React.FC<EditingAreaProps> = ({
   // 2. Select ONLY that object
   // 3. Prepare drag for ONLY that object
   const handleLayerPointerDown = (layer: Layer, e: React.PointerEvent) => {
+    if (activeDrawingShapeType) {
+      // Shape drawing mode takes priority: touches on canvas create new shape
+      e.preventDefault();
+      e.stopPropagation();
+      try {
+        (containerRef.current as HTMLElement)?.setPointerCapture(e.pointerId);
+      } catch (err) {
+        console.warn(err);
+      }
+
+      const canvasX = Math.round((e.clientX - pan.x) / zoom);
+      const canvasY = Math.round((e.clientY - pan.y) / zoom);
+
+      setShapeDraft({
+        type: activeDrawingShapeType,
+        startX: canvasX,
+        startY: canvasY,
+        currentX: canvasX,
+        currentY: canvasY,
+        pointerId: e.pointerId,
+      });
+      return;
+    }
+
     if (perspectiveLayerId) return;
+    e.preventDefault();
     e.stopPropagation();
+
+    try {
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    } catch {}
 
     // Select this layer immediately
     onSelectLayer(layer.id);
@@ -265,8 +367,13 @@ export const EditingArea: React.FC<EditingAreaProps> = ({
     layer: Layer,
     e: React.PointerEvent
   ) => {
+    e.preventDefault();
     e.stopPropagation();
     if (layer.locked) return;
+
+    try {
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    } catch {}
 
     setDragState({
       mode: 'resize',
@@ -281,8 +388,13 @@ export const EditingArea: React.FC<EditingAreaProps> = ({
 
   // Rotation Handle Pointer Down
   const handleRotatePointerDown = (layer: Layer, e: React.PointerEvent) => {
+    e.preventDefault();
     e.stopPropagation();
     if (layer.locked) return;
+
+    try {
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    } catch {}
 
     setDragState({
       mode: 'rotate',
@@ -296,9 +408,19 @@ export const EditingArea: React.FC<EditingAreaProps> = ({
 
   // Pointer Move during Drag / Resize / Rotate (Applied strictly to dragState.layerId ONLY)
   const handlePointerMove = (e: React.PointerEvent) => {
+    if (shapeDraft) {
+      e.preventDefault();
+      const canvasX = Math.round((e.clientX - pan.x) / zoom);
+      const canvasY = Math.round((e.clientY - pan.y) / zoom);
+      setShapeDraft(d => (d ? { ...d, currentX: canvasX, currentY: canvasY } : null));
+      return;
+    }
+
     // If multi-touch pinch is active, do not execute single pointer drag
     if (touchStateRef.current) return;
     if (!dragState) return;
+
+    e.preventDefault();
 
     const currentLayer = project.layers.find(l => l.id === dragState.layerId);
     if (!currentLayer || currentLayer.locked) return;
@@ -409,7 +531,61 @@ export const EditingArea: React.FC<EditingAreaProps> = ({
     }
   };
 
-  const handlePointerUp = () => {
+  const handlePointerUp = (e?: React.PointerEvent) => {
+    if (shapeDraft) {
+      if (e) {
+        e.preventDefault();
+        try {
+          (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+        } catch {}
+      }
+
+      const dx = shapeDraft.currentX - shapeDraft.startX;
+      const dy = shapeDraft.currentY - shapeDraft.startY;
+      const dist = Math.hypot(dx, dy);
+
+      let finalX: number;
+      let finalY: number;
+      let finalW: number;
+      let finalH: number;
+
+      if (dist < 8) {
+        // User tapped without dragging: generate comfortable centered shape size at tap point
+        const def = SHAPES_LIST.find(s => s.type === shapeDraft.type);
+        finalW = def ? def.defaultWidth : 140;
+        finalH = def ? def.defaultHeight : 100;
+        finalX = Math.round(shapeDraft.startX - finalW / 2);
+        finalY = Math.round(shapeDraft.startY - finalH / 2);
+      } else {
+        finalX = Math.min(shapeDraft.startX, shapeDraft.currentX);
+        finalY = Math.min(shapeDraft.startY, shapeDraft.currentY);
+        finalW = Math.max(16, Math.abs(shapeDraft.currentX - shapeDraft.startX));
+        finalH = Math.max(16, Math.abs(shapeDraft.currentY - shapeDraft.startY));
+
+        if (shapeDraft.type === 'circle') {
+          const side = Math.max(finalW, finalH);
+          finalW = side;
+          finalH = side;
+        }
+      }
+
+      onFinishDrawingShape?.({
+        type: shapeDraft.type,
+        x: finalX,
+        y: finalY,
+        width: finalW,
+        height: finalH,
+      });
+
+      setShapeDraft(null);
+      return;
+    }
+
+    if (e) {
+      try {
+        (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+      } catch {}
+    }
     setDragState(null);
     setGuides([]);
   };
@@ -428,7 +604,11 @@ export const EditingArea: React.FC<EditingAreaProps> = ({
       onPointerDown={handleBackgroundPointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
-      className="relative flex-1 w-full h-full bg-[#052E16] overflow-hidden select-none touch-none flex items-center justify-center cursor-default"
+      onPointerCancel={handlePointerUp}
+      style={{ touchAction: 'none' }}
+      className={`relative flex-1 w-full h-full bg-[#052E16] overflow-hidden select-none touch-none flex items-center justify-center ${
+        activeDrawingShapeType ? 'cursor-crosshair' : 'cursor-default'
+      }`}
     >
       {/* Background Subtle Dot Pattern in dark green */}
       <div
@@ -439,11 +619,38 @@ export const EditingArea: React.FC<EditingAreaProps> = ({
         }}
       />
 
+      {/* Floating Active Drawing Mode Indicator */}
+      {activeDrawingShapeType && (
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 bg-[#0B3D20]/95 backdrop-blur-md px-4 py-2 rounded-2xl border border-[#22C55E] shadow-2xl flex items-center gap-3 animate-in fade-in slide-in-from-top-2 duration-150">
+          <div className="flex items-center gap-2 text-xs font-bold text-white">
+            <span className="w-2.5 h-2.5 rounded-full bg-[#22C55E] animate-ping" />
+            <Shapes className="w-4 h-4 text-[#22C55E]" />
+            <span className="capitalize text-[#DCFCE7]">Drawing {activeDrawingShapeType}</span>
+            <span className="text-[10px] text-emerald-200/80 font-normal hidden sm:inline">
+              • Drag on canvas to size shape
+            </span>
+          </div>
+          {onCancelDrawingShape && (
+            <button
+              onClick={e => {
+                e.stopPropagation();
+                onCancelDrawingShape();
+              }}
+              className="px-2.5 py-1 bg-[#052E16] hover:bg-[#15803D] text-neutral-200 hover:text-white rounded-lg text-[10px] font-bold border border-[#15803D] transition-colors"
+            >
+              Cancel
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Main Workspace Canvas (Fixed scale, NOT mutated by gestures) */}
       <div
         id="canvas-wrapper"
+        onPointerDown={handleBackgroundPointerDown}
         className="absolute shadow-2xl origin-top-left border border-emerald-900/50"
         style={{
+          touchAction: 'none',
           width: `${project.width}px`,
           height: `${project.height}px`,
           transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
@@ -469,6 +676,21 @@ export const EditingArea: React.FC<EditingAreaProps> = ({
             backgroundPosition: 'center',
           }}
         />
+
+        {/* Alignment & Composition Grid Overlay (Rule of Thirds) */}
+        {showGrid && (
+          <div className="absolute inset-0 pointer-events-none z-30 grid grid-cols-3 grid-rows-3 border border-[#22C55E]/50">
+            <div className="border-r border-b border-[#22C55E]/30" />
+            <div className="border-r border-b border-[#22C55E]/30" />
+            <div className="border-b border-[#22C55E]/30" />
+            <div className="border-r border-b border-[#22C55E]/30" />
+            <div className="border-r border-b border-[#22C55E]/30" />
+            <div className="border-b border-[#22C55E]/30" />
+            <div className="border-r border-[#22C55E]/30" />
+            <div className="border-r border-[#22C55E]/30" />
+            <div />
+          </div>
+        )}
 
         {/* EVERY LAYER IS AN INDEPENDENT OBJECT */}
         {project.layers.map((layer, index) => {
@@ -632,6 +854,12 @@ export const EditingArea: React.FC<EditingAreaProps> = ({
                 <svg
                   viewBox={`0 0 ${t.width} ${t.height}`}
                   className="w-full h-full pointer-events-none"
+                  style={{
+                    transform: `${layer.flipX ? 'scaleX(-1)' : ''} ${layer.flipY ? 'scaleY(-1)' : ''}`,
+                    filter: layer.shadow
+                      ? `drop-shadow(${layer.shadow.offsetX}px ${layer.shadow.offsetY}px ${layer.shadow.blur}px ${layer.shadow.color})`
+                      : undefined,
+                  }}
                 >
                   <path
                     d={renderShapeSVGPath(layer.shapeType, t.width, t.height)}
@@ -653,6 +881,48 @@ export const EditingArea: React.FC<EditingAreaProps> = ({
             </div>
           );
         })}
+
+        {/* LIVE SHAPE DRAWING PREVIEW */}
+        {shapeDraft && (() => {
+          const minX = Math.min(shapeDraft.startX, shapeDraft.currentX);
+          const minY = Math.min(shapeDraft.startY, shapeDraft.currentY);
+          let w = Math.max(8, Math.abs(shapeDraft.currentX - shapeDraft.startX));
+          let h = Math.max(8, Math.abs(shapeDraft.currentY - shapeDraft.startY));
+          if (shapeDraft.type === 'circle') {
+            const side = Math.max(w, h);
+            w = side;
+            h = side;
+          }
+
+          return (
+            <div
+              className="absolute pointer-events-none z-40 transition-none"
+              style={{
+                left: `${minX}px`,
+                top: `${minY}px`,
+                width: `${w}px`,
+                height: `${h}px`,
+              }}
+            >
+              <svg
+                viewBox={`0 0 ${w} ${h}`}
+                className="w-full h-full overflow-visible drop-shadow-lg"
+              >
+                <path
+                  d={renderShapeSVGPath(shapeDraft.type, w, h)}
+                  fill="rgba(34, 197, 94, 0.35)"
+                  stroke="#22C55E"
+                  strokeWidth={shapeDraft.type === 'line' ? '6' : '3'}
+                  strokeDasharray="6 4"
+                />
+              </svg>
+              {/* Live Dimensions Badge */}
+              <div className="absolute -bottom-6 left-1/2 -translate-x-1/2 px-2 py-0.5 bg-[#052E16] text-[#22C55E] text-[10px] font-mono font-bold rounded border border-[#22C55E] shadow-md whitespace-nowrap">
+                {w} × {h} px
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Selected Layer Bounding Box & Handles (EXCLUSIVELY FOR SELECTED LAYER) */}
         {selectedLayer && !perspectiveLayerId && (

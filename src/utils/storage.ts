@@ -390,10 +390,42 @@ export const BUILTIN_PRESETS: Preset[] = [
   },
 ];
 
+// Helper to safely serialize projects without crashing on quota exceeded
+function sanitizeProjectForStorage(project: Project): Project {
+  // Deep clone to avoid mutating in-memory project
+  return {
+    ...project,
+    layers: project.layers.map(layer => {
+      if (layer.type === 'image') {
+        const src = layer.src || '';
+        // If image src is a huge data URL (> 200KB), truncate or remove duplicate originalSrc
+        // but keep src intact if possible or compress if needed
+        return {
+          ...layer,
+          // Strip duplicate originalSrc to cut storage footprint in half
+          originalSrc: layer.originalSrc === layer.src ? '' : layer.originalSrc.length > 50000 ? '' : layer.originalSrc,
+        };
+      }
+      return layer;
+    }),
+  };
+}
+
 export function getProjects(): Project[] {
   try {
     const raw = localStorage.getItem(PROJECTS_KEY);
-    return raw ? JSON.parse(raw) : [];
+    if (!raw) return [];
+    const parsed: Project[] = JSON.parse(raw);
+    // Restore any stripped originalSrc from src
+    return parsed.map(p => ({
+      ...p,
+      layers: p.layers.map(l => {
+        if (l.type === 'image' && !l.originalSrc) {
+          return { ...l, originalSrc: l.src };
+        }
+        return l;
+      }),
+    }));
   } catch (e) {
     console.error('Failed to get projects', e);
     return [];
@@ -403,17 +435,38 @@ export function getProjects(): Project[] {
 export function saveProject(project: Project): void {
   try {
     const projects = getProjects();
-    const idx = projects.findIndex(p => p.id === project.id);
+    const cleanProj = sanitizeProjectForStorage(project);
+    const idx = projects.findIndex(p => p.id === cleanProj.id);
     if (idx >= 0) {
-      projects[idx] = { ...project, updatedAt: Date.now() };
+      projects[idx] = { ...cleanProj, updatedAt: Date.now() };
     } else {
-      projects.unshift({ ...project, updatedAt: Date.now() });
+      projects.unshift({ ...cleanProj, updatedAt: Date.now() });
     }
-    // Limit to 25 recent projects
-    const trimmed = projects.slice(0, 25);
-    localStorage.setItem(PROJECTS_KEY, JSON.stringify(trimmed));
+
+    // Try saving progressively smaller subsets if quota is exceeded
+    const attempts = [10, 5, 3, 1];
+    for (const count of attempts) {
+      try {
+        const trimmed = projects.slice(0, count);
+        localStorage.setItem(PROJECTS_KEY, JSON.stringify(trimmed));
+        return;
+      } catch (err: unknown) {
+        if (err instanceof Error && (err.name === 'QuotaExceededError' || err.name === 'NS_ERROR_DOM_QUOTA_REACHED')) {
+          console.warn(`LocalStorage quota exceeded saving ${count} projects, trying smaller set...`);
+          continue;
+        }
+        throw err;
+      }
+    }
+
+    // If still failing, try saving only current project with minimal layer data
+    try {
+      localStorage.setItem(PROJECTS_KEY, JSON.stringify([cleanProj]));
+    } catch (finalErr) {
+      console.warn('Unable to persist project to localStorage due to device quota limits:', finalErr);
+    }
   } catch (e) {
-    console.error('Failed to save project', e);
+    console.warn('Could not save project to localStorage:', e);
   }
 }
 

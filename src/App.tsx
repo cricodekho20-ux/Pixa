@@ -10,6 +10,7 @@ import {
   Preset,
   DesignBackground,
   PhotoBorderConfig,
+  ShapeType,
 } from './types/editor';
 import { StartScreen } from './components/StartScreen';
 import { TopBar } from './components/TopBar';
@@ -23,10 +24,12 @@ import { ThreeDTextModal } from './components/ThreeDTextModal';
 import { EffectsModal } from './components/EffectsModal';
 import { ChromaKeyModal } from './components/ChromaKeyModal';
 import { StickerShapeModal } from './components/StickerShapeModal';
+import { ShapeMenuModal } from './components/ShapeMenuModal';
 import { FreehandDrawCanvas } from './components/FreehandDrawCanvas';
 import { PhotoBorderStudio, DEFAULT_PHOTO_BORDER } from './components/PhotoBorderStudio';
 import { ToolsSheet } from './components/ToolsSheet';
 import { CanvasSizeModal } from './components/CanvasSizeModal';
+import { RatioModal } from './components/RatioModal';
 import { CropModal } from './components/CropModal';
 import { ResizeModal } from './components/ResizeModal';
 import { ExportModal } from './components/ExportModal';
@@ -44,7 +47,7 @@ import {
 } from './utils/storage';
 import { downloadProjectImage, shareProjectImage } from './utils/export';
 import { StickerItem } from './utils/stickers';
-import { ShapeDefinition } from './utils/shapes';
+import { ShapeDefinition, SHAPES_LIST } from './utils/shapes';
 import { X, Bookmark } from 'lucide-react';
 
 export default function App() {
@@ -79,6 +82,8 @@ export default function App() {
   const [showToolsSheet, setShowToolsSheet] = useState(false);
   const [showExportModal, setShowExportModal] = useState(false);
   const [showSizeModal, setShowSizeModal] = useState(false);
+  const [showRatioModal, setShowRatioModal] = useState(false);
+  const [showGrid, setShowGrid] = useState(false);
   const [showCropModal, setShowCropModal] = useState(false);
   const [showResizeModal, setShowResizeModal] = useState(false);
   const [showPresetsModal, setShowPresetsModal] = useState(false);
@@ -90,6 +95,8 @@ export default function App() {
   const [showPhotoBorderStudio, setShowPhotoBorderStudio] = useState(false);
   const [showStickerShapeModal, setShowStickerShapeModal] = useState(false);
   const [stickerShapeInitialTab, setStickerShapeInitialTab] = useState<'stickers' | 'shapes'>('stickers');
+  const [showShapeMenuModal, setShowShapeMenuModal] = useState(false);
+  const [activeDrawingShapeType, setActiveDrawingShapeType] = useState<ShapeType | null>(null);
   const [isDrawingMode, setIsDrawingMode] = useState(false);
   const [perspectiveLayerId, setPerspectiveLayerId] = useState<string | null>(null);
 
@@ -97,13 +104,21 @@ export default function App() {
   const [settings, setSettings] = useState<EditorSettings>(getSettings);
   const [recentProjects, setRecentProjects] = useState<Project[]>(getProjects);
   const [presets, setPresets] = useState<Preset[]>([...getUserPresets(), ...BUILTIN_PRESETS]);
+  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Push new state to history stack (max 35 steps)
   const pushHistory = (newProject: Project) => {
     setHistory(prev => [...prev.slice(-34), project]);
     setFuture([]);
     setProject(newProject);
-    saveProject(newProject);
+
+    // Debounce saveProject to prevent rapid localStorage write storms
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+    }
+    saveTimeoutRef.current = setTimeout(() => {
+      saveProject(newProject);
+    }, 400);
   };
 
   const handleUndo = () => {
@@ -122,25 +137,52 @@ export default function App() {
     setProject(next);
   };
 
-  // Helper to read image file into data URL and get intrinsic dimensions
+  // Helper to read image file into data URL and get intrinsic dimensions, scaling down huge images if necessary
   const readImageFile = (
     file: File
   ): Promise<{ src: string; width: number; height: number; name: string }> => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = () => {
-        const src = reader.result as string;
+        const rawSrc = reader.result as string;
         const img = new Image();
         img.onload = () => {
+          const origW = img.naturalWidth || img.width || 1080;
+          const origH = img.naturalHeight || img.height || 1080;
+
+          // Limit max dimensions to 2560px for smooth mobile rendering & storage safety
+          const MAX_DIM = 2560;
+          if (origW > MAX_DIM || origH > MAX_DIM || rawSrc.length > 2500000) {
+            const scale = Math.min(MAX_DIM / origW, MAX_DIM / origH, 1);
+            const targetW = Math.round(origW * scale);
+            const targetH = Math.round(origH * scale);
+
+            const canvas = document.createElement('canvas');
+            canvas.width = targetW;
+            canvas.height = targetH;
+            const ctx = canvas.getContext('2d');
+            if (ctx) {
+              ctx.drawImage(img, 0, 0, targetW, targetH);
+              const compressedSrc = canvas.toDataURL('image/jpeg', 0.92);
+              resolve({
+                src: compressedSrc,
+                width: targetW,
+                height: targetH,
+                name: file.name.replace(/\.[^/.]+$/, ''),
+              });
+              return;
+            }
+          }
+
           resolve({
-            src,
-            width: img.naturalWidth || img.width,
-            height: img.naturalHeight || img.height,
+            src: rawSrc,
+            width: origW,
+            height: origH,
             name: file.name.replace(/\.[^/.]+$/, ''),
           });
         };
         img.onerror = reject;
-        img.src = src;
+        img.src = rawSrc;
       };
       reader.onerror = reject;
       reader.readAsDataURL(file);
@@ -207,6 +249,8 @@ export default function App() {
         updatedAt: Date.now(),
         width: initialWidth,
         height: initialHeight,
+        originalWidth: initialWidth,
+        originalHeight: initialHeight,
         background: {
           type: 'color',
           color: '#000000',
@@ -280,6 +324,8 @@ export default function App() {
       updatedAt: Date.now(),
       width,
       height,
+      originalWidth: width,
+      originalHeight: height,
       background: {
         type: 'color',
         color: '#000000',
@@ -574,6 +620,49 @@ export default function App() {
     setSelectedLayerId(newShape.id);
   };
 
+  // FINISH DRAWING SHAPE ON CANVAS
+  const handleFinishDrawingShape = (shapeData: {
+    type: ShapeType;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  }) => {
+    const shapeDef = SHAPES_LIST.find(s => s.type === shapeData.type);
+    const label = shapeDef ? shapeDef.label.toUpperCase() : shapeData.type.toUpperCase();
+
+    const newShape: ShapeLayer = {
+      id: `ly_shp_${Date.now()}`,
+      name: label,
+      type: 'shape',
+      visible: true,
+      locked: false,
+      opacity: 100,
+      transform: {
+        x: shapeData.x,
+        y: shapeData.y,
+        width: shapeData.width,
+        height: shapeData.height,
+        rotation: 0,
+        scaleX: 1,
+        scaleY: 1,
+      },
+      shapeType: shapeData.type,
+      fillType: 'color',
+      fillColor: '#FACC15',
+      strokeColor: '#000000',
+      strokeWidth: 0,
+      borderRadius: shapeData.type === 'rounded-rect' ? 16 : 0,
+    };
+
+    pushHistory({
+      ...project,
+      layers: [...project.layers, newShape],
+    });
+    setSelectedLayerId(newShape.id);
+    setActiveDrawingShapeType(null);
+  };
+
   // Freehand Drawing Finished
   const handleDrawingFinished = (drawingLayer: DrawingLayer) => {
     pushHistory({
@@ -724,12 +813,23 @@ export default function App() {
     setShowSizeModal(false);
   };
 
-  // Center alignment tools
+  // Apply design canvas ratio from Tools -> Ratio
+  const handleApplyRatio = (width: number, height: number, ratioLabel: string) => {
+    pushHistory({
+      ...project,
+      width,
+      height,
+    });
+    setShowRatioModal(false);
+  };
+
+  // Alignment tools
   const handleCenterHorizontal = () => {
     if (!selectedLayerId) return;
     const layer = project.layers.find(l => l.id === selectedLayerId);
     if (!layer) return;
-    const newX = Math.round((project.width - layer.transform.width) / 2);
+    const w = layer.transform.width * (layer.transform.scaleX || 1);
+    const newX = Math.round((project.width - w) / 2);
     handleUpdateLayerTransform(selectedLayerId, { x: newX });
   };
 
@@ -737,8 +837,20 @@ export default function App() {
     if (!selectedLayerId) return;
     const layer = project.layers.find(l => l.id === selectedLayerId);
     if (!layer) return;
-    const newY = Math.round((project.height - layer.transform.height) / 2);
+    const h = layer.transform.height * (layer.transform.scaleY || 1);
+    const newY = Math.round((project.height - h) / 2);
     handleUpdateLayerTransform(selectedLayerId, { y: newY });
+  };
+
+  const handleCenterBoth = () => {
+    if (!selectedLayerId) return;
+    const layer = project.layers.find(l => l.id === selectedLayerId);
+    if (!layer) return;
+    const w = layer.transform.width * (layer.transform.scaleX || 1);
+    const h = layer.transform.height * (layer.transform.scaleY || 1);
+    const newX = Math.round((project.width - w) / 2);
+    const newY = Math.round((project.height - h) / 2);
+    handleUpdateLayerTransform(selectedLayerId, { x: newX, y: newY });
   };
 
   // Save as Preset
@@ -813,6 +925,8 @@ export default function App() {
               setCurrentView('start');
             }}
             onOpenSizeModal={() => setShowSizeModal(true)}
+            onOpenRatioModal={() => setShowRatioModal(true)}
+            onOpenShapes={() => setShowShapeMenuModal(true)}
             onOpenPresets={() => setShowPresetsModal(true)}
             snapEnabled={settings.snapToGuides}
             onToggleSnap={() =>
@@ -859,11 +973,15 @@ export default function App() {
                   setPerspectiveLayerId(selectedLayer.id);
                 }
               }}
+              activeDrawingShapeType={activeDrawingShapeType}
+              onFinishDrawingShape={handleFinishDrawingShape}
+              onCancelDrawingShape={() => setActiveDrawingShapeType(null)}
               zoom={zoom}
               setZoom={setZoom}
               pan={pan}
               setPan={setPan}
               snapEnabled={settings.snapToGuides}
+              showGrid={showGrid}
               perspectiveLayerId={perspectiveLayerId}
               onApplyPerspective={persp => {
                 if (perspectiveLayerId) {
@@ -920,6 +1038,7 @@ export default function App() {
             onReplaceImage={handleReplaceImage}
             onOpenCrop={() => setShowCropModal(true)}
             onOpenResize={() => setShowResizeModal(true)}
+            onOpenShapes={() => setShowShapeMenuModal(true)}
             background={project.background}
             onChangeBackground={bg => pushHistory({ ...project, background: bg })}
           />
@@ -932,10 +1051,7 @@ export default function App() {
               setStickerShapeInitialTab('stickers');
               setShowStickerShapeModal(true);
             }}
-            onOpenShapes={() => {
-              setStickerShapeInitialTab('shapes');
-              setShowStickerShapeModal(true);
-            }}
+            onOpenShapes={() => setShowShapeMenuModal(true)}
             onStartDrawing={() => setIsDrawingMode(true)}
             onSelectBackground={() => setSelectedLayerId(null)}
             onOpenEffects={() => setShowEffectsModal(true)}
@@ -946,11 +1062,33 @@ export default function App() {
         </div>
       )}
 
-      {/* Tools Sheet (Size, Photo Border, Crop, Resize, Chroma, Perspective, Effects, Center) */}
+      {/* Tools Sheet (Size, Ratio, Background, Grid, Alignment, Export, Photo Border, Crop, Resize, Chroma, Perspective, Effects) */}
       {showToolsSheet && (
         <ToolsSheet
           selectedLayer={selectedLayer}
+          currentWidth={project.width}
+          currentHeight={project.height}
+          snapEnabled={settings.snapToGuides}
+          showGrid={showGrid}
+          onToggleSnap={() =>
+            setSettings(s => {
+              const next = { ...s, snapToGuides: !s.snapToGuides };
+              saveSettings(next);
+              return next;
+            })
+          }
+          onToggleGrid={() => setShowGrid(prev => !prev)}
           onOpenSizeModal={() => setShowSizeModal(true)}
+          onOpenRatioModal={() => setShowRatioModal(true)}
+          onOpenShapes={() => setShowShapeMenuModal(true)}
+          onOpenStickers={() => {
+            setStickerShapeInitialTab('stickers');
+            setShowStickerShapeModal(true);
+          }}
+          onSelectBackground={() => setSelectedLayerId(null)}
+          onCenterHorizontal={handleCenterHorizontal}
+          onCenterVertical={handleCenterVertical}
+          onCenterBoth={handleCenterBoth}
           onOpenCropModal={() => {
             if (selectedLayer?.type === 'image') {
               setShowCropModal(true);
@@ -973,11 +1111,22 @@ export default function App() {
             }
           }}
           onOpenEffects={() => setShowEffectsModal(true)}
-          onSelectBackground={() => setSelectedLayerId(null)}
           onOpenExportModal={() => setShowExportModal(true)}
-          onCenterHorizontal={handleCenterHorizontal}
-          onCenterVertical={handleCenterVertical}
           onClose={() => setShowToolsSheet(false)}
+        />
+      )}
+
+      {/* Ratio Select Modal (Original, 1:1, 4:5, 9:16, 16:9, 3:4, 4:3, 2:3, 3:2, 21:9, Custom) */}
+      {showRatioModal && (
+        <RatioModal
+          currentWidth={project.width}
+          currentHeight={project.height}
+          originalWidth={project.originalWidth || (project.layers.find(l => l.type === 'image') as ImageLayer)?.naturalWidth || project.width}
+          originalHeight={project.originalHeight || (project.layers.find(l => l.type === 'image') as ImageLayer)?.naturalHeight || project.height}
+          layers={project.layers}
+          background={project.background}
+          onApplyRatio={handleApplyRatio}
+          onClose={() => setShowRatioModal(false)}
         />
       )}
 
@@ -987,6 +1136,10 @@ export default function App() {
           currentWidth={project.width}
           currentHeight={project.height}
           onApplySize={handleApplyCanvasSize}
+          onOpenRatioModal={() => {
+            setShowSizeModal(false);
+            setShowRatioModal(true);
+          }}
           onClose={() => setShowSizeModal(false)}
         />
       )}
@@ -1159,11 +1312,23 @@ export default function App() {
       {/* Sticker & Shape Picker Modal */}
       {showStickerShapeModal && (
         <StickerShapeModal
+          key={stickerShapeInitialTab}
           initialTab={stickerShapeInitialTab}
           onAddSticker={handleAddSticker}
           onAddCustomSticker={handleAddCustomSticker}
           onAddShape={handleAddShape}
           onClose={() => setShowStickerShapeModal(false)}
+        />
+      )}
+
+      {/* Interactive Shape Selection Menu Modal */}
+      {showShapeMenuModal && (
+        <ShapeMenuModal
+          onSelectShapeForDrawing={shapeType => {
+            setActiveDrawingShapeType(shapeType);
+            setShowShapeMenuModal(false);
+          }}
+          onClose={() => setShowShapeMenuModal(false)}
         />
       )}
 

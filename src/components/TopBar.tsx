@@ -15,8 +15,11 @@ import {
   ZoomOut,
   Lock,
   Unlock,
+  Scale,
+  Shapes,
 } from 'lucide-react';
 import { Project } from '../types/editor';
+import { computeRatioString } from './RatioModal';
 
 interface TopBarProps {
   project: Project;
@@ -30,6 +33,8 @@ interface TopBarProps {
   onShare: () => void;
   onBackToStart: () => void;
   onOpenSizeModal: () => void;
+  onOpenRatioModal?: () => void;
+  onOpenShapes?: () => void;
   onOpenPresets: () => void;
   snapEnabled: boolean;
   onToggleSnap: () => void;
@@ -53,6 +58,8 @@ export const TopBar: React.FC<TopBarProps> = ({
   onShare,
   onBackToStart,
   onOpenSizeModal,
+  onOpenRatioModal,
+  onOpenShapes,
   onOpenPresets,
   snapEnabled,
   onToggleSnap,
@@ -235,6 +242,31 @@ export const TopBar: React.FC<TopBarProps> = ({
               className="absolute right-0 top-full mt-2 w-52 bg-[#0B3D20] border border-[#15803D] rounded-2xl shadow-2xl p-1.5 z-50 text-xs space-y-1 animate-in fade-in zoom-in-95 duration-150 text-white"
               onClick={() => setShowMoreMenu(false)}
             >
+              {onOpenRatioModal && (
+                <button
+                  onClick={onOpenRatioModal}
+                  className="w-full text-left px-3 py-2 rounded-xl text-white hover:bg-[#15803D] flex items-center justify-between"
+                >
+                  <div className="flex items-center gap-2">
+                    <Scale className="w-4 h-4 text-[#22C55E]" />
+                    <span className="font-medium">Design Ratio</span>
+                  </div>
+                  <span className="text-[10px] font-mono text-[#22C55E] bg-[#052E16] px-1.5 py-0.5 rounded border border-[#15803D]">
+                    {computeRatioString(project.width, project.height)}
+                  </span>
+                </button>
+              )}
+
+              {onOpenShapes && (
+                <button
+                  onClick={onOpenShapes}
+                  className="w-full text-left px-3 py-2 rounded-xl text-white hover:bg-[#15803D] flex items-center gap-2"
+                >
+                  <Shapes className="w-4 h-4 text-[#22C55E]" />
+                  <span className="font-medium">Vector Shapes</span>
+                </button>
+              )}
+
               <button
                 onClick={onOpenSizeModal}
                 className="w-full text-left px-3 py-2 rounded-xl text-white hover:bg-[#15803D] flex items-center gap-2"

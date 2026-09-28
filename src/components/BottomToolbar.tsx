@@ -49,7 +49,7 @@ export const BottomToolbar: React.FC<BottomToolbarProps> = ({
   };
 
   return (
-    <nav className="h-16 bg-[#0B3D20] border-t border-[#15803D] px-1 sm:px-3 flex items-center justify-around z-30 select-none shrink-0 shadow-lg text-white">
+    <nav className="h-16 bg-[#0B3D20] border-t border-[#15803D] px-2 sm:px-3 flex items-center justify-between sm:justify-around overflow-x-auto no-scrollbar z-30 select-none shrink-0 shadow-lg text-white gap-1">
       <input
         type="file"
         ref={fileInputRef}
